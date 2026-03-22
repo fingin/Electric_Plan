@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 import pygame
 
 from electric_plan.models import FloorPlanState, Panel, Tool, Wall
+from electric_plan.panel_editor import PanelEditor
 from electric_plan.settings import (
     BACKGROUND_COLOR,
     FPS,
@@ -43,6 +44,9 @@ class ElectricPlanApp:
         self.running = True
         self.panning = False
         self.last_mouse_position: Optional[Tuple[int, int]] = None
+        self.current_view = "floor_plan"
+        self.panel_editor = PanelEditor()
+        self.active_panel_index: Optional[int] = None
 
     def run(self) -> None:
         while self.running:
@@ -59,6 +63,18 @@ class ElectricPlanApp:
             elif event.type == pygame.VIDEORESIZE:
                 self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
             elif event.type == pygame.KEYDOWN:
+                continue
+
+            if event.type == pygame.VIDEORESIZE:
+                self.screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+
+            if self.current_view == "panel_editor":
+                should_close = self.panel_editor.handle_event(event, self.screen.get_size())
+                if should_close:
+                    self.close_panel_editor()
+                continue
+
+            if event.type == pygame.KEYDOWN:
                 self.handle_keydown(event)
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 self.handle_mouse_button_down(event)
@@ -80,6 +96,7 @@ class ElectricPlanApp:
             self.state.wall_start = None
         elif event.key == pygame.K_ESCAPE:
             self.state.wall_start = None
+            self.state.clear_selection()
         elif event.key in (pygame.K_DELETE, pygame.K_BACKSPACE):
             self.delete_selected()
 
@@ -140,6 +157,7 @@ class ElectricPlanApp:
         for index, panel in enumerate(self.state.panels):
             if hypot(world_pos[0] - panel.position[0], world_pos[1] - panel.position[1]) <= PANEL_SIZE:
                 self.state.selected_panel_index = index
+                self.open_panel_editor(index)
                 return
 
         threshold = 12 / self.state.zoom
@@ -149,6 +167,11 @@ class ElectricPlanApp:
                 return
 
     def draw(self) -> None:
+        if self.current_view == "panel_editor":
+            self.panel_editor.draw(self.screen)
+            pygame.display.flip()
+            return
+
         self.screen.fill(BACKGROUND_COLOR)
         canvas_rect = self.get_canvas_rect()
         pygame.draw.rect(self.screen, BACKGROUND_COLOR, canvas_rect)
@@ -225,6 +248,7 @@ class ElectricPlanApp:
             ("1 Select", self.small_font, MUTED_TEXT_COLOR),
             ("2 Draw walls", self.small_font, MUTED_TEXT_COLOR),
             ("3 Place panel", self.small_font, MUTED_TEXT_COLOR),
+            ("Click panel to open editor", self.small_font, MUTED_TEXT_COLOR),
             ("", self.small_font, TEXT_COLOR),
             ("Navigation", self.font, TEXT_COLOR),
             ("Right drag to pan", self.small_font, MUTED_TEXT_COLOR),
@@ -363,6 +387,18 @@ class ElectricPlanApp:
         nearest_x = x1 + t * dx
         nearest_y = y1 + t * dy
         return (nearest_x, nearest_y), hypot(px - nearest_x, py - nearest_y)
+
+    def open_panel_editor(self, panel_index: int) -> None:
+        if panel_index < 0 or panel_index >= len(self.state.panels):
+            return
+        self.active_panel_index = panel_index
+        panel = self.state.panels[panel_index]
+        self.panel_editor.reset_for_panel(panel.label)
+        self.current_view = "panel_editor"
+
+    def close_panel_editor(self) -> None:
+        self.current_view = "floor_plan"
+        self.active_panel_index = None
 
 
 def main() -> None:

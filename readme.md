@@ -13,6 +13,7 @@ This first setup focuses on the foundation for a floor-plan editor:
 - wall drawing tool
 - object placement tool for an initial panel marker
 - wall-aware panel placement that aligns panels to nearby wall rotation
+- click-through panel editor view for breaker, bus, terminal, and wire layout experimentation
 - side status panel with active tool and controls
 
 ## Controls
@@ -27,6 +28,7 @@ This first setup focuses on the foundation for a floor-plan editor:
 - `Delete` or `Backspace`: Delete selected item
 
 Panels placed near a wall will snap onto that wall and inherit its rotation.
+Click an existing panel in select mode to open the dedicated panel editor view, then press `Esc` or use the back button to return to the floor plan.
 
 ## Run locally
 
@@ -54,5 +56,6 @@ Panels placed near a wall will snap onto that wall and inherit its rotation.
         ├── __init__.py
         ├── app.py
         ├── models.py
+        ├── panel_editor.py
         └── settings.py
 ```
