@@ -23,6 +23,7 @@ class Wall:
 class Panel:
     position: Point
     label: str = "Panel"
+    rotation: float = 0.0
 
 
 @dataclass

@@ -12,6 +12,7 @@ This first setup focuses on the foundation for a floor-plan editor:
 - background grid
 - wall drawing tool
 - object placement tool for an initial panel marker
+- wall-aware panel placement that aligns panels to nearby wall rotation
 - side status panel with active tool and controls
 
 ## Controls
@@ -24,6 +25,8 @@ This first setup focuses on the foundation for a floor-plan editor:
 - `Mouse Wheel`: Zoom
 - `Escape`: Cancel current wall preview
 - `Delete` or `Backspace`: Delete selected item
+
+Panels placed near a wall will snap onto that wall and inherit its rotation.
 
 ## Run locally
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from math import hypot
+from math import atan2, degrees, hypot
 from typing import Optional, Tuple
 
 import pygame
@@ -100,7 +100,7 @@ class ElectricPlanApp:
             elif self.state.tool == Tool.WALL:
                 self.handle_wall_click(world_pos)
             elif self.state.tool == Tool.PANEL:
-                self.state.panels.append(Panel(position=self.snap(world_pos)))
+                self.state.panels.append(self.create_panel(world_pos))
                 self.state.selected_panel_index = len(self.state.panels) - 1
                 self.state.selected_wall_index = None
 
@@ -204,10 +204,13 @@ class ElectricPlanApp:
         for index, panel in enumerate(self.state.panels):
             center = self.world_to_screen(panel.position)
             color = PANEL_SELECTED_COLOR if index == self.state.selected_panel_index else PANEL_COLOR
-            rect = pygame.Rect(0, 0, PANEL_SIZE * 2, PANEL_SIZE * 1.4)
-            rect.center = center
-            pygame.draw.rect(self.screen, color, rect, border_radius=4)
-            pygame.draw.rect(self.screen, BACKGROUND_COLOR, rect, width=2, border_radius=4)
+            panel_surface = pygame.Surface((PANEL_SIZE * 2, int(PANEL_SIZE * 1.4)), pygame.SRCALPHA)
+            panel_rect = panel_surface.get_rect()
+            pygame.draw.rect(panel_surface, color, panel_rect, border_radius=4)
+            pygame.draw.rect(panel_surface, BACKGROUND_COLOR, panel_rect, width=2, border_radius=4)
+            rotated_surface = pygame.transform.rotate(panel_surface, -panel.rotation)
+            rotated_rect = rotated_surface.get_rect(center=center)
+            self.screen.blit(rotated_surface, rotated_rect)
 
     def draw_sidebar(self) -> None:
         width, height = self.screen.get_size()
@@ -252,7 +255,7 @@ class ElectricPlanApp:
     def get_selected_label(self) -> str:
         if self.state.selected_panel_index is not None:
             panel = self.state.panels[self.state.selected_panel_index]
-            return f"{panel.label} at {self.format_point(panel.position)}"
+            return f"{panel.label} at {self.format_point(panel.position)} ({int(panel.rotation)}°)"
 
         if self.state.selected_wall_index is not None:
             wall = self.state.walls[self.state.selected_wall_index]
@@ -284,6 +287,42 @@ class ElectricPlanApp:
             round(point[1] / GRID_SIZE) * GRID_SIZE,
         )
 
+    def create_panel(self, world_pos: Tuple[float, float]) -> Panel:
+        snapped_position = self.snap(world_pos)
+        nearest_wall = self.find_nearest_wall(snapped_position)
+        if nearest_wall is None:
+            return Panel(position=snapped_position)
+
+        wall, snapped_to_wall, _distance = nearest_wall
+        return Panel(
+            position=snapped_to_wall,
+            rotation=self.wall_rotation(wall),
+        )
+
+    def find_nearest_wall(
+        self,
+        point: Tuple[float, float],
+        max_distance: float = GRID_SIZE * 1.5,
+    ) -> Optional[Tuple[Wall, Tuple[float, float], float]]:
+        nearest: Optional[Tuple[Wall, Tuple[float, float], float]] = None
+        for wall in self.state.walls:
+            projection, distance = self.project_point_to_segment(point, wall.start, wall.end)
+            if distance > max_distance:
+                continue
+
+            snapped_projection = self.snap(projection)
+            candidate = (wall, snapped_projection, distance)
+            if nearest is None or distance < nearest[2]:
+                nearest = candidate
+
+        return nearest
+
+    @staticmethod
+    def wall_rotation(wall: Wall) -> float:
+        dx = wall.end[0] - wall.start[0]
+        dy = wall.end[1] - wall.start[1]
+        return degrees(atan2(dy, dx))
+
     def world_to_screen(self, point: Tuple[float, float]) -> Tuple[int, int]:
         ox, oy = self.state.camera_offset
         return int(point[0] * self.state.zoom + ox), int(point[1] * self.state.zoom + oy)
@@ -301,6 +340,15 @@ class ElectricPlanApp:
 
     @staticmethod
     def distance_to_segment(point: Tuple[float, float], start: Tuple[float, float], end: Tuple[float, float]) -> float:
+        _, distance = ElectricPlanApp.project_point_to_segment(point, start, end)
+        return distance
+
+    @staticmethod
+    def project_point_to_segment(
+        point: Tuple[float, float],
+        start: Tuple[float, float],
+        end: Tuple[float, float],
+    ) -> Tuple[Tuple[float, float], float]:
         px, py = point
         x1, y1 = start
         x2, y2 = end
@@ -308,13 +356,13 @@ class ElectricPlanApp:
         dy = y2 - y1
 
         if dx == 0 and dy == 0:
-            return hypot(px - x1, py - y1)
+            return (x1, y1), hypot(px - x1, py - y1)
 
         t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
         t = max(0.0, min(1.0, t))
         nearest_x = x1 + t * dx
         nearest_y = y1 + t * dy
-        return hypot(px - nearest_x, py - nearest_y)
+        return (nearest_x, nearest_y), hypot(px - nearest_x, py - nearest_y)
 
 
 def main() -> None:
