@@ -450,6 +450,11 @@ class PanelEditor:
         self.topbar_height = 52
         self.sidebar_width = 360
         self.back_button_rect = pygame.Rect(0, 0, 120, 32)
+        self.tool_buttons: list[tuple[str, pygame.Rect]] = []
+        self.part_buttons: list[tuple[str, pygame.Rect]] = []
+        self.wire_role_cycle = ["hot", "neutral", "ground"]
+        self.manual_wire_role = "hot"
+        self.request_floor_plan_conduit = False
 
     def reset_for_panel(self, panel_label: str) -> None:
         self.world.build_default_scene()
@@ -458,6 +463,7 @@ class PanelEditor:
             panel.label = panel_label or panel.label
         self.world.status = f"Opened panel view for {panel_label or 'panel'}"
         self.camera = Camera()
+        self.request_floor_plan_conduit = False
 
     def handle_event(self, event: pygame.event.Event, screen_size: tuple[int, int]) -> bool:
         mouse_screen = Vec2(pygame.mouse.get_pos())
@@ -475,6 +481,9 @@ class PanelEditor:
 
     def handle_keydown(self, event: pygame.event.Event) -> bool:
         if event.key == pygame.K_ESCAPE:
+            if self.world.pending_wire_terminal or self.world.creating_zone:
+                self.cancel_current_action()
+                return False
             self.cancel_current_action()
             return True
         if event.key == pygame.K_1:
@@ -493,6 +502,11 @@ class PanelEditor:
         elif event.key == pygame.K_b:
             self.world.show_blueprint = not self.world.show_blueprint
             self.world.status = f"Blueprint {'ON' if self.world.show_blueprint else 'OFF'}"
+        elif event.key == pygame.K_TAB and self.world.current_tool == "wire":
+            self.cycle_wire_role()
+        elif event.key == pygame.K_z and self.world.current_tool == "wire" and self.world.pending_wire_points:
+            self.world.pending_wire_points.pop()
+            self.world.status = "Removed last wire waypoint"
         elif event.key == pygame.K_s:
             self.world.save()
         elif event.key == pygame.K_l:
@@ -511,12 +525,25 @@ class PanelEditor:
         if event.button == 1:
             if self.back_button_rect.collidepoint(mouse_screen.x, mouse_screen.y):
                 return True
+            sidebar_action = self.handle_sidebar_click(mouse_screen)
+            if sidebar_action == "close":
+                return True
+            if sidebar_action:
+                return False
             if self.is_sidebar_click(mouse_screen, screen_size):
                 return False
             self.handle_left_click(mouse_world)
         elif event.button == 2:
             self.world.panning = True
         elif event.button == 3:
+            if self.world.current_tool == "wire" and self.world.pending_wire_points:
+                self.world.pending_wire_points.pop()
+                self.world.status = "Removed last wire waypoint"
+            else:
+                self.world.pending_wire_terminal = None
+                self.world.pending_wire_points = []
+                self.world.dragging_part = False
+                self.world.status = "Canceled wire"
             self.world.pending_wire_terminal = None
             self.world.pending_wire_points = []
             self.world.dragging_part = False
@@ -578,6 +605,9 @@ class PanelEditor:
 
     def set_tool(self, tool: str) -> None:
         self.world.current_tool = tool
+        if tool != "wire":
+            self.world.pending_wire_terminal = None
+            self.world.pending_wire_points = []
         self.world.status = f"Tool set to {tool}"
 
     def cancel_current_action(self) -> None:
@@ -588,6 +618,12 @@ class PanelEditor:
         self.world.temp_zone_rect = None
         self.world.dragging_part = False
         self.world.status = "Canceled current action"
+
+    def cycle_wire_role(self) -> None:
+        current_index = self.wire_role_cycle.index(self.manual_wire_role)
+        self.manual_wire_role = self.wire_role_cycle[(current_index + 1) % len(self.wire_role_cycle)]
+        self.world.pending_wire_color = {"hot": WIRE_RED, "neutral": WIRE_WHITE, "ground": WIRE_GREEN}[self.manual_wire_role]
+        self.world.status = f"Wire role set to {self.manual_wire_role}"
 
     def zoom_at(self, mouse_screen: Vec2, factor: float) -> None:
         old_world = self.camera.screen_to_world((int(mouse_screen.x), int(mouse_screen.y)))
@@ -658,6 +694,8 @@ class PanelEditor:
                 self.world.pending_wire_terminal = terminal_id
                 self.world.pending_wire_points = []
                 role = self.world.terminals[terminal_id].role
+                self.manual_wire_role = role if role in self.wire_role_cycle else "hot"
+                self.world.pending_wire_color = {"hot": WIRE_RED, "neutral": WIRE_WHITE, "ground": WIRE_GREEN}.get(self.manual_wire_role, WIRE_PURPLE)
                 self.world.pending_wire_color = {"hot": WIRE_RED, "neutral": WIRE_WHITE, "ground": WIRE_GREEN}.get(role, WIRE_PURPLE)
                 self.world.status = f"Wire start: {self.world.terminals[terminal_id].label}"
                 return
@@ -683,6 +721,23 @@ class PanelEditor:
             point = self.orthogonal_point(previous, snapped)
             self.world.pending_wire_points.append((point.x, point.y))
             self.world.status = f"Waypoint {len(self.world.pending_wire_points)} added"
+
+    def handle_sidebar_click(self, mouse_screen: Vec2) -> str | bool:
+        for tool, rect in self.tool_buttons:
+            if rect.collidepoint(mouse_screen.x, mouse_screen.y):
+                self.set_tool(tool)
+                return True
+
+        for part_kind, rect in self.part_buttons:
+            if rect.collidepoint(mouse_screen.x, mouse_screen.y):
+                if part_kind == "add_load":
+                    self.set_tool("add_load")
+                elif part_kind == "place_conduit":
+                    self.request_floor_plan_conduit = True
+                    self.world.status = "Conduit tool armed for floor plan placement"
+                    return "close"
+                return True
+        return False
 
     @staticmethod
     def orthogonal_point(previous: Vec2, target: Vec2) -> Vec2:
@@ -835,6 +890,8 @@ class PanelEditor:
         pygame.draw.rect(surface, SIDEBAR_BG, sidebar)
         pygame.draw.line(surface, SIDEBAR_BORDER, sidebar.topleft, sidebar.bottomleft, 2)
         y = 72
+        self.tool_buttons = []
+        self.part_buttons = []
 
         def line(text: str, color: Color = TEXT, font: Optional[pygame.font.Font] = None) -> None:
             nonlocal y
@@ -843,6 +900,31 @@ class PanelEditor:
             y += render_font.get_height() + 7
 
         line("Panelboard Emulator", TEXT, self.big_font)
+        line("Tools", TEXT)
+        button_y = y
+        for tool_name, label in [("pointer", "Pointer"), ("wire", "Wire"), ("zone", "Zone"), ("add_load", "Load")]:
+            rect = pygame.Rect(width - self.sidebar_width + 20, button_y, 88, 28)
+            active = self.world.current_tool == tool_name
+            pygame.draw.rect(surface, ACCENT if active else BUTTON_BG, rect, border_radius=6)
+            pygame.draw.rect(surface, BUTTON_BORDER, rect, 2, border_radius=6)
+            self.draw_text(surface, label, rect.x + 10, rect.y + 6, BG if active else TEXT, self.small_font)
+            self.tool_buttons.append((tool_name, rect))
+            button_y += 34
+        y = button_y + 4
+
+        line("Parts", TEXT)
+        for part_kind, label in [("add_load", "Add Load Stub"), ("place_conduit", "Send Conduit To Plan")]:
+            rect = pygame.Rect(width - self.sidebar_width + 20, y, 180, 28)
+            pygame.draw.rect(surface, BUTTON_BG, rect, border_radius=6)
+            pygame.draw.rect(surface, BUTTON_BORDER, rect, 2, border_radius=6)
+            self.draw_text(surface, label, rect.x + 10, rect.y + 6, TEXT, self.small_font)
+            self.part_buttons.append((part_kind, rect))
+            y += 34
+
+        line(f"Tool: {self.world.current_tool}")
+        line(f"Grid snap: {'ON' if self.world.grid_snap else 'OFF'}")
+        line(f"Blueprint: {'ON' if self.world.show_blueprint else 'OFF'}")
+        line(f"Wire role: {self.manual_wire_role}")
         line(f"Tool: {self.world.current_tool}")
         line(f"Grid snap: {'ON' if self.world.grid_snap else 'OFF'}")
         line(f"Blueprint: {'ON' if self.world.show_blueprint else 'OFF'}")
@@ -855,6 +937,8 @@ class PanelEditor:
         line("5 add load stub")
         line("G grid toggle")
         line("B blueprint toggle")
+        line("Tab cycle wire role")
+        line("Right click / Z undo path")
         line("S save   L load")
         line("Delete remove selected")
         line("Esc / Back returns")

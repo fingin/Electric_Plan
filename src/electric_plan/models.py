@@ -11,6 +11,7 @@ class Tool(str, Enum):
     SELECT = "select"
     WALL = "wall"
     PANEL = "panel"
+    CONDUIT = "conduit"
 
 
 @dataclass
@@ -27,6 +28,17 @@ class Panel:
 
 
 @dataclass
+class Conduit:
+    start: Point
+    end: Point
+    label: str = "Conduit"
+
+
+@dataclass
+class FloorPlanState:
+    walls: List[Wall] = field(default_factory=list)
+    panels: List[Panel] = field(default_factory=list)
+    conduits: List[Conduit] = field(default_factory=list)
 class FloorPlanState:
     walls: List[Wall] = field(default_factory=list)
     panels: List[Panel] = field(default_factory=list)
@@ -35,8 +47,12 @@ class FloorPlanState:
     zoom: float = 1.0
     selected_wall_index: Optional[int] = None
     selected_panel_index: Optional[int] = None
+    selected_conduit_index: Optional[int] = None
+    wall_start: Optional[Point] = None
+    conduit_start: Optional[Point] = None
     wall_start: Optional[Point] = None
 
     def clear_selection(self) -> None:
         self.selected_wall_index = None
         self.selected_panel_index = None
+        self.selected_conduit_index = None

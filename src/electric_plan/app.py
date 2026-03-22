@@ -5,7 +5,7 @@ from typing import Optional, Tuple
 
 import pygame
 
-from electric_plan.models import FloorPlanState, Panel, Tool, Wall
+from electric_plan.models import Conduit, FloorPlanState, Panel, Tool, Wall
 from electric_plan.panel_editor import PanelEditor
 from electric_plan.settings import (
     BACKGROUND_COLOR,
@@ -47,6 +47,7 @@ class ElectricPlanApp:
         self.current_view = "floor_plan"
         self.panel_editor = PanelEditor()
         self.active_panel_index: Optional[int] = None
+        self.floor_tool_buttons: list[tuple[Tool, pygame.Rect, str]] = []
 
     def run(self) -> None:
         while self.running:
@@ -85,14 +86,22 @@ class ElectricPlanApp:
         if event.key == pygame.K_1:
             self.state.tool = Tool.SELECT
             self.state.wall_start = None
+            self.state.conduit_start = None
         elif event.key == pygame.K_2:
             self.state.tool = Tool.WALL
             self.state.wall_start = None
+            self.state.conduit_start = None
         elif event.key == pygame.K_3:
             self.state.tool = Tool.PANEL
             self.state.wall_start = None
+            self.state.conduit_start = None
+        elif event.key == pygame.K_4:
+            self.state.tool = Tool.CONDUIT
+            self.state.wall_start = None
+            self.state.conduit_start = None
         elif event.key == pygame.K_ESCAPE:
             self.state.wall_start = None
+            self.state.conduit_start = None
             self.state.clear_selection()
         elif event.key in (pygame.K_DELETE, pygame.K_BACKSPACE):
             self.delete_selected()
@@ -101,6 +110,9 @@ class ElectricPlanApp:
         if event.button == 3:
             self.panning = True
             self.last_mouse_position = event.pos
+            return
+
+        if self.handle_sidebar_click(event.pos):
             return
 
         if self.is_sidebar_click(event.pos):
@@ -117,6 +129,9 @@ class ElectricPlanApp:
                 self.state.panels.append(self.create_panel(world_pos))
                 self.state.selected_panel_index = len(self.state.panels) - 1
                 self.state.selected_wall_index = None
+                self.state.selected_conduit_index = None
+            elif self.state.tool == Tool.CONDUIT:
+                self.handle_conduit_click(world_pos)
 
         elif event.button in (4, 5):
             self.zoom_at(event.pos, 1 if event.button == 4 else -1)
@@ -140,10 +155,26 @@ class ElectricPlanApp:
                 self.state.selected_panel_index = None
             self.state.wall_start = None
 
+    def handle_conduit_click(self, world_pos: Tuple[float, float]) -> None:
+        snapped = self.snap(world_pos)
+        if self.state.conduit_start is None:
+            self.state.conduit_start = snapped
+            return
+
+        if snapped != self.state.conduit_start:
+            self.state.conduits.append(Conduit(start=self.state.conduit_start, end=snapped))
+            self.state.selected_conduit_index = len(self.state.conduits) - 1
+            self.state.selected_panel_index = None
+            self.state.selected_wall_index = None
+        self.state.conduit_start = None
+
     def delete_selected(self) -> None:
         if self.state.selected_panel_index is not None:
             del self.state.panels[self.state.selected_panel_index]
             self.state.selected_panel_index = None
+        elif self.state.selected_conduit_index is not None:
+            del self.state.conduits[self.state.selected_conduit_index]
+            self.state.selected_conduit_index = None
         elif self.state.selected_wall_index is not None:
             del self.state.walls[self.state.selected_wall_index]
             self.state.selected_wall_index = None
@@ -158,6 +189,11 @@ class ElectricPlanApp:
                 return
 
         threshold = 12 / self.state.zoom
+        for index, conduit in enumerate(self.state.conduits):
+            if self.distance_to_segment(world_pos, conduit.start, conduit.end) <= threshold:
+                self.state.selected_conduit_index = index
+                return
+
         for index, wall in enumerate(self.state.walls):
             if self.distance_to_segment(world_pos, wall.start, wall.end) <= threshold:
                 self.state.selected_wall_index = index
@@ -175,6 +211,8 @@ class ElectricPlanApp:
         self.draw_grid(canvas_rect)
         self.draw_walls()
         self.draw_wall_preview()
+        self.draw_conduits()
+        self.draw_conduit_preview()
         self.draw_panels()
         self.draw_sidebar()
         pygame.display.flip()
@@ -232,10 +270,55 @@ class ElectricPlanApp:
             rotated_rect = rotated_surface.get_rect(center=center)
             self.screen.blit(rotated_surface, rotated_rect)
 
+    def draw_conduits(self) -> None:
+        for index, conduit in enumerate(self.state.conduits):
+            color = PANEL_SELECTED_COLOR if index == self.state.selected_conduit_index else (130, 126, 108)
+            pygame.draw.line(
+                self.screen,
+                color,
+                self.world_to_screen(conduit.start),
+                self.world_to_screen(conduit.end),
+                max(2, int(6 * self.state.zoom)),
+            )
+            for endpoint in (conduit.start, conduit.end):
+                pygame.draw.circle(self.screen, BACKGROUND_COLOR, self.world_to_screen(endpoint), max(3, int(4 * self.state.zoom)))
+
+    def draw_conduit_preview(self) -> None:
+        if self.state.conduit_start is None or self.state.tool != Tool.CONDUIT:
+            return
+        mouse_pos = pygame.mouse.get_pos()
+        if self.is_sidebar_click(mouse_pos):
+            return
+        pygame.draw.line(
+            self.screen,
+            PANEL_COLOR,
+            self.world_to_screen(self.state.conduit_start),
+            self.world_to_screen(self.snap(self.screen_to_world(mouse_pos))),
+            max(1, int(4 * self.state.zoom)),
+        )
+
     def draw_sidebar(self) -> None:
         width, height = self.screen.get_size()
         panel_rect = pygame.Rect(width - SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, height)
         pygame.draw.rect(self.screen, SIDEBAR_COLOR, panel_rect)
+        self.floor_tool_buttons = []
+
+        tool_specs = [
+            (Tool.SELECT, "Select"),
+            (Tool.WALL, "Wall"),
+            (Tool.PANEL, "Panel"),
+            (Tool.CONDUIT, "Conduit"),
+        ]
+        button_y = 18
+        for tool, label in tool_specs:
+            button_rect = pygame.Rect(panel_rect.left + 18, button_y, 120, 28)
+            button_color = PANEL_COLOR if self.state.tool == tool else GRID_MAJOR_COLOR
+            pygame.draw.rect(self.screen, button_color, button_rect, border_radius=6)
+            pygame.draw.rect(self.screen, BACKGROUND_COLOR, button_rect, width=2, border_radius=6)
+            text_surface = self.small_font.render(label, True, BACKGROUND_COLOR if self.state.tool == tool else TEXT_COLOR)
+            self.screen.blit(text_surface, (button_rect.x + 12, button_rect.y + 6))
+            self.floor_tool_buttons.append((tool, button_rect, label))
+            button_y += 34
 
         lines = [
             ("Electric Plan", self.font, TEXT_COLOR),
@@ -245,6 +328,7 @@ class ElectricPlanApp:
             ("1 Select", self.small_font, MUTED_TEXT_COLOR),
             ("2 Draw walls", self.small_font, MUTED_TEXT_COLOR),
             ("3 Place panel", self.small_font, MUTED_TEXT_COLOR),
+            ("4 Draw conduit", self.small_font, MUTED_TEXT_COLOR),
             ("Click panel to open editor", self.small_font, MUTED_TEXT_COLOR),
             ("", self.small_font, TEXT_COLOR),
             ("Navigation", self.font, TEXT_COLOR),
@@ -254,6 +338,7 @@ class ElectricPlanApp:
             ("Scene", self.font, TEXT_COLOR),
             (f"Walls: {len(self.state.walls)}", self.small_font, MUTED_TEXT_COLOR),
             (f"Panels: {len(self.state.panels)}", self.small_font, MUTED_TEXT_COLOR),
+            (f"Conduits: {len(self.state.conduits)}", self.small_font, MUTED_TEXT_COLOR),
         ]
 
         selected_label = self.get_selected_label()
@@ -267,6 +352,7 @@ class ElectricPlanApp:
                 ]
             )
 
+        y = button_y + 8
         y = 24
         for text, font, color in lines:
             surface = font.render(text, True, color)
@@ -277,6 +363,10 @@ class ElectricPlanApp:
         if self.state.selected_panel_index is not None:
             panel = self.state.panels[self.state.selected_panel_index]
             return f"{panel.label} at {self.format_point(panel.position)} ({int(panel.rotation)}°)"
+
+        if self.state.selected_conduit_index is not None:
+            conduit = self.state.conduits[self.state.selected_conduit_index]
+            return f"{conduit.label} {self.format_point(conduit.start)} → {self.format_point(conduit.end)}"
 
         if self.state.selected_wall_index is not None:
             wall = self.state.walls[self.state.selected_wall_index]
@@ -396,6 +486,25 @@ class ElectricPlanApp:
     def close_panel_editor(self) -> None:
         self.current_view = "floor_plan"
         self.active_panel_index = None
+        if self.panel_editor.request_floor_plan_conduit:
+            self.state.tool = Tool.CONDUIT
+            self.state.conduit_start = None
+            self.panel_editor.request_floor_plan_conduit = False
+
+    def handle_sidebar_click(self, position: Tuple[int, int]) -> bool:
+        if not self.is_sidebar_click(position):
+            return False
+
+        if not self.floor_tool_buttons:
+            return False
+
+        for tool, rect, _label in self.floor_tool_buttons:
+            if rect.collidepoint(position):
+                self.state.tool = tool
+                self.state.wall_start = None
+                self.state.conduit_start = None
+                return True
+        return False
 
 
 def main() -> None:

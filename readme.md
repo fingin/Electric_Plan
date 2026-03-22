@@ -14,6 +14,7 @@ This first setup focuses on the foundation for a floor-plan editor:
 - object placement tool for an initial panel marker
 - wall-aware panel placement that aligns panels to nearby wall rotation
 - click-through panel editor view for breaker, bus, terminal, and wire layout experimentation
+- floor-plan conduit drawing and panel-editor conduit handoff back into the plan
 - side status panel with active tool and controls
 
 ## Controls
@@ -22,6 +23,7 @@ This first setup focuses on the foundation for a floor-plan editor:
 - `2`: Wall tool
 - `3`: Panel tool
 - `Left Click`: Use active tool
+- `4`: Conduit tool
 - `Right Click + Drag`: Pan camera
 - `Mouse Wheel`: Zoom
 - `Escape`: Cancel current wall preview
@@ -29,6 +31,7 @@ This first setup focuses on the foundation for a floor-plan editor:
 
 Panels placed near a wall will snap onto that wall and inherit its rotation.
 Click an existing panel in select mode to open the dedicated panel editor view, then press `Esc` or use the back button to return to the floor plan.
+Inside the panel editor, use the tool palette and part menu for faster switching, easier wire routing, and sending conduit placement back to the floor plan.
 
 ## Run locally
 
