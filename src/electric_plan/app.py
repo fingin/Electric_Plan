@@ -353,6 +353,7 @@ class ElectricPlanApp:
             )
 
         y = button_y + 8
+        y = 24
         for text, font, color in lines:
             surface = font.render(text, True, color)
             self.screen.blit(surface, (panel_rect.left + 20, y))

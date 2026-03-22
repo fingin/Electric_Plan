@@ -484,6 +484,7 @@ class PanelEditor:
             if self.world.pending_wire_terminal or self.world.creating_zone:
                 self.cancel_current_action()
                 return False
+            self.cancel_current_action()
             return True
         if event.key == pygame.K_1:
             self.set_tool("pointer")
@@ -543,6 +544,10 @@ class PanelEditor:
                 self.world.pending_wire_points = []
                 self.world.dragging_part = False
                 self.world.status = "Canceled wire"
+            self.world.pending_wire_terminal = None
+            self.world.pending_wire_points = []
+            self.world.dragging_part = False
+            self.world.status = "Canceled wire"
         elif event.button == 4:
             self.zoom_at(mouse_screen, 1.1)
         elif event.button == 5:
@@ -691,6 +696,7 @@ class PanelEditor:
                 role = self.world.terminals[terminal_id].role
                 self.manual_wire_role = role if role in self.wire_role_cycle else "hot"
                 self.world.pending_wire_color = {"hot": WIRE_RED, "neutral": WIRE_WHITE, "ground": WIRE_GREEN}.get(self.manual_wire_role, WIRE_PURPLE)
+                self.world.pending_wire_color = {"hot": WIRE_RED, "neutral": WIRE_WHITE, "ground": WIRE_GREEN}.get(role, WIRE_PURPLE)
                 self.world.status = f"Wire start: {self.world.terminals[terminal_id].label}"
                 return
 
@@ -919,6 +925,9 @@ class PanelEditor:
         line(f"Grid snap: {'ON' if self.world.grid_snap else 'OFF'}")
         line(f"Blueprint: {'ON' if self.world.show_blueprint else 'OFF'}")
         line(f"Wire role: {self.manual_wire_role}")
+        line(f"Tool: {self.world.current_tool}")
+        line(f"Grid snap: {'ON' if self.world.grid_snap else 'OFF'}")
+        line(f"Blueprint: {'ON' if self.world.show_blueprint else 'OFF'}")
         line("")
         line("Hotkeys", TEXT)
         line("1 pointer")
